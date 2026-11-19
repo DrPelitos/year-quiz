@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Year Quiz</title>
+<style>
+  :root { color-scheme: dark; --bg:#101319; --panel:#191f29; --panel2:#222b38; --text:#eef2f7; --muted:#9aa8ba; --accent:#8ab4ff; --good:#75d6a1; --bad:#ff8585; }
+  * { box-sizing:border-box }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; display:grid; place-items:center; padding:24px }
+  main { width:min(680px,100%); }
+  header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:22px }
+  h1 { font-size:1.45rem; margin:0; letter-spacing:-.03em }
+  .sub { color:var(--muted); font-size:.9rem; margin-top:3px }
+  .panel { background:color-mix(in srgb,var(--panel) 94%,transparent); border:1px solid #303b4b; border-radius:6px; padding:22px; box-shadow:0 18px 55px #0005 }
+  .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:18px }
+  button,.file-label,select,input[type=number] { font:inherit; border-radius:4px; border:1px solid #3a4658; background:var(--panel2); color:var(--text); padding:10px 13px }
+  button,.file-label { cursor:pointer }
+  button:hover,.file-label:hover { border-color:var(--accent) }
+  button.primary { background:var(--accent); color:#101827; border-color:var(--accent); font-weight:700 }
+  button:disabled { opacity:.45; cursor:not-allowed }
+  input[type=file] { display:none }
+  .mode { margin-left:auto; display:flex; align-items:center; gap:8px; color:var(--muted); font-size:.9rem }
+  .status { color:var(--muted); font-size:.85rem; margin:0 0 15px }
+  .question { font-size:clamp(1.25rem,4vw,1.8rem); font-weight:700; line-height:1.25; margin:8px 0 22px; letter-spacing:-.025em }
+  .answers { display:grid; grid-template-columns:1fr 1fr; gap:11px }
+  .answer { text-align:left; min-height:60px; font-size:1.05rem; font-weight:650; display:flex; align-items:center; justify-content:space-between; gap:12px }
+  .answer .letter { color:var(--muted); font-size:.8rem; font-weight:500 }
+  .answer.correct { border-color:var(--good); background:#183528 }
+  .answer.wrong { border-color:var(--bad); background:#3a2228 }
+  .answer:disabled { opacity:1; cursor:default }
+  .feedback { min-height:28px; margin:16px 0 4px; font-weight:600 }
+  .feedback.good { color:var(--good) } .feedback.bad { color:var(--bad) }
+  .input-row { display:flex; gap:10px }
+  input[type=number] { width:100%; min-width:0; font-size:1.1rem }
+  .hidden { display:none!important }
+  .bottom { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:18px }
+  .muted { color:var(--muted); font-size:.85rem }
+  details { margin-top:18px; color:var(--muted); font-size:.9rem }
+  summary { cursor:pointer; color:var(--text) }
+  code { color:#c8d9ff }
+  @media(max-width:480px) { body{padding:14px} .panel{padding:17px} .answers{grid-template-columns:1fr} .mode{margin-left:0;width:100%} header{align-items:flex-start} }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>Year Quiz</h1><div class="sub">Test how well you know your dates.</div></div>
+    <div class="muted" id="score">0 correct · 0 played</div>
+  </header>
+  <section class="panel">
+    <div class="toolbar">
+      <label class="file-label" for="csvFile">Load CSV</label>
+      <input id="csvFile" type="file" accept=".csv,text/csv">
+      <button id="sampleBtn" type="button">Use sample</button>
+      <label class="mode">Answer mode
+        <select id="mode"><option value="multiple">4 choices</option><option value="typed">Type a year</option></select>
+      </label>
+      <label class="mode" style="margin-left:0"><input id="loop" type="checkbox"> Loop mode</label>
+    </div>
+    <p class="status" id="datasetStatus">Load a CSV with <code>question</code> and <code>answer</code> columns to begin.</p>
+    <div id="quiz" class="hidden">
+      <div class="status" id="progress"></div>
+      <div class="question" id="question"></div>
+      <div id="multiple" class="answers"></div>
+      <div id="typed" class="input-row hidden">
+        <input id="yearInput" type="number" inputmode="numeric" placeholder="Enter a year" aria-label="Your answer">
+        <button class="primary" id="submitTyped" type="button">Check</button>
+      </div>
+      <div class="feedback" id="feedback" aria-live="polite"></div>
+      <div class="bottom">
+        <span class="muted" id="rangeInfo"></span>
+        <button class="primary" id="nextBtn" type="button" disabled>Next question →</button>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let rows = [], index = 0, age = [], correctCount = 0, played = 0, answered = false, currentChoices = [];
+  const sample = [
+    {question:'Zheng He began his first voyage to the “Western Seas” to promote tributary trade to Ming China.',answer:1405},
+    {question:'Johannes Gutenberg developed a movable-type printing press in Europe, accelerating the spread of books and ideas.',answer:1440},
+    {question:'Sultan Mehmet II conquered the Byzantine capital of Constantinople, renaming it Istanbul.',answer:1453},
+    {question:'Christopher Columbus reached the Bahamas, beginning sustained European contact with the Americas.',answer:1492},
+    {question:'Spain and Portugal signed the Treaty of Tordesillas, dividing their claims in the Americas.',answer:1494},
+    {question:'Vasco da Gama reached India, establishing a Portuguese sea route to South Asia.',answer:1498},
+    {question:'Sikhism emerged in South Asia from interactions between Hinduism and Islam.',answer:1500,decade:true},
+    {question:'Ismail I founded the Safavid Empire and established Twelver Shi’a Islam as its state religion.',answer:1501},
+    {question:'The Portuguese captured Goa, establishing a major base in the Indian Ocean.',answer:1510},
+    {question:'Martin Luther published his Ninety-Five Theses, beginning the Protestant Reformation.',answer:1517},
+    {question:'Sultan Selim I conquered Egypt and the holy cities of Mecca and Medina reinforcing his claim as caliph.',answer:1517},
+    {question:'Hernán Cortés and his Indigenous allies conquered the Aztec Empire for Spain.',answer:1521},
+    {question:'Babur defeated the Delhi Sultanate and established the Mughal Empire in India.',answer:1526},
+    {question:'Francisco Pizarro and his Indigenous allies conquered the Inca Empire for Spain.',answer:1533},
+    {question:'The discovery of Potosí made Spanish America a major source of silver.',answer:1545},
+    {question:'European colonists expanded sugar plantations that increasingly relied on enslaved African labor.',answer:1550,decade:true},
+    {question:'Under Ivan IV, Russia conquered Kazan and Astrakhan, beginning major expansion into Eurasia.',answer:1550,decade:true},
+    {question:'Spain established Manila, connecting American silver with Asian markets.',answer:1565},
+    {question:"The Ming government required many taxes to be paid in silver, increasing China's participation in global trade.",answer:1570},
+    {question:'Russia expanded across Siberia, greatly increasing the territory of the Russian Empire.',answer:1580,decade:true},
+    {question:'Moroccan forces defeated the Songhai Empire at the Battle of Tondibi, weakening Songhai power in West Africa.',answer:1591},
+    {question:'Spanish America developed a racial caste system distinguishing peninsulares, creoles, mestizos, and other groups.',answer:1600,decade:true},
+    {question:'The Dutch East India Company was established as a powerful joint-stock trading company.',answer:1602},
+    {question:'The Tokugawa shogunate unified Japan and gradually restricted foreign trade.',answer:1603},
+    {question:'Samuel de Champlain founded Quebec, strengthening French colonization of North America.',answer:1608},
+    {question:'Michael Romanov became czar, beginning the Romanov dynasty that would rule Russia for centuries.',answer:1613},
+    {question:'Enslaved Africans arrived in English North America, contributing to the growth of racialized slavery.',answer:1619},
+    {question:'Queen Nzinga resisted Portuguese expansion while ruling Ndongo and later Matamba in Central Africa.',answer:1620,decade:true},
+    {question:'Shah Jahan began construction of the Taj Mahal as a mausoleum for his deceased wife.',answer:1631},
+    {question:'Peasant rebellions weakened the Ming Dynasty as Manchu forces seized Beijing and established the Qing Dynasty.',answer:1644},
+    {question:'Dutch settlers established a colony at the Cape of Good Hope, strengthening European influence in southern Africa.',answer:1652},
+    {question:'The Marathas established an independent state under Shivaji, challenging Mughal power in India.',answer:1674},
+    {question:"Metacom's War erupted between Indigenous peoples and English colonists in New England.",answer:1675},
+    {question:'The Pueblo Revolt temporarily drove the Spanish from New Mexico.',answer:1680},
+    {question:'The Glorious Revolution strengthened Parliament and limited the power of the English monarchy.',answer:1688},
+    {question:'Under Peter the Great, Russia gained territory on the Baltic Sea after defeating Sweden.',answer:1721},
+    {question:'Yongzheng became Qing emperor and strengthened central administration and government finances.',answer:1722},
+    {question:'European states increasingly used mercantilism and joint-stock companies to compete for global trade and colonies.',answer:1740,decade:true},
+    {question:'The Asante Empire expanded in West Africa through control of gold and participation in Atlantic trade.',answer:1740,decade:true}
+  ];
+
+  function parseCSV(text) {
+    text=text.replace(/^\uFEFF/,"");
+    const out=[]; let row=[], field="", quoted=false;
+    for(let i=0;i<text.length;i++){
+      const c=text[i], n=text[i+1];
+      if(quoted){ if(c==='"' && n==='"'){field+='"';i++;} else if(c==='"') quoted=false; else field+=c; }
+      else if(c==='"') quoted=true;
+      else if(c===","){row.push(field);field="";}
+      else if(c==="\n"){row.push(field);out.push(row);row=[];field="";}
+      else if(c!=="\r") field+=c;
+    }
+    row.push(field); if(row.some(v=>v.trim()!=="")) out.push(row);
+    if(out.length<2) throw Error("The CSV needs a header row and at least one question.");
+    const headers=out.shift().map(h=>h.trim().toLowerCase());
+    const qi=headers.indexOf("question"), ai=headers.indexOf("answer");
+    if(qi<0 || ai<0) throw Error('Could not find "question" and "answer" columns.');
+    return out.map(r=>{
+      const raw=(r[ai]||"").trim(), decade=/^-?\d+s$/i.test(raw);
+      return {question:(r[qi]||"").trim(),answer:Number(decade?raw.slice(0,-1):raw),decade};
+    }).filter(r=>r.question && Number.isInteger(r.answer) && r.answer>=-9999 && r.answer<=9999);
+  }
+  function setDataset(data) {
+    if(!data.length) { $("datasetStatus").textContent="No valid rows found. Check that each row has a question and an integer year."; $("quiz").classList.add("hidden"); return; }
+    rows=data; age=rows.map(()=>rows.length+1); index=isLoop()?pickRandom():0; correctCount=0; played=0;
+    $("score").textContent="0 correct · 0 played";
+    $("datasetStatus").textContent=`Loaded ${rows.length} questions.`;
+    $("quiz").classList.remove("hidden");
+    showQuestion();
+  }
+
+  function pickRandom() {
+    const n=rows.length;
+    for(let i=0;i<n;i++) age[i]++;
+    if(n===1) return 0;
+    const cooldown=Math.min(10,Math.floor(n/2));
+    const w=age.map(a=>a>cooldown?a-cooldown:0);
+    let r=Math.random()*w.reduce((x,y)=>x+y,0);
+    let pick=w.findIndex(x=>x>0);
+    for(let i=0;i<n;i++){ if(w[i]>0 && (r-=w[i])<0){pick=i;break;} }
+    age[pick]=0;
+    return pick;
+  }
+  const isLoop=()=>$("loop").checked;
+  function randomInt(min,max){return Math.floor(Math.random()*(max-min+1))+min;}
+  const label=(y,decade)=>decade?`${y}s`:`${y}`;
+  function makeChoices(row) {
+    const min=Math.min(...rows.map(r=>r.answer)), max=Math.max(...rows.map(r=>r.answer));
+    const step=row.decade?10:1;
+    const lo=Math.ceil(min/step), hi=Math.floor(max/step);
+    if(hi-lo+1<4) throw Error(`The CSV's full year range (${min}–${max}) contains fewer than four distinct options, so three unique decoys are impossible.`);
+    const set=new Set([row.answer]);
+
+    while(set.size<4) set.add(randomInt(lo,hi)*step);
+    return [...set].sort(()=>Math.random()-.5);
+  }
+  function showQuestion() {
+    answered=false;
+    const row=rows[index];
+    $("progress").textContent=isLoop()?`Loop mode · ${played} played`:`Question ${index+1} of ${rows.length}`;
+    $("question").textContent=row.question;
+    $("feedback").textContent=""; $("feedback").className="feedback";
+    $("nextBtn").disabled=true;
+    $("nextBtn").textContent=!isLoop()&&index===rows.length-1?"Restart quiz ↻":"Next question →";
+    $("yearInput").value=""; $("yearInput").disabled=false; $("submitTyped").disabled=false;
+    const min=Math.min(...rows.map(r=>r.answer)), max=Math.max(...rows.map(r=>r.answer));
+    $("rangeInfo").textContent=`Decoy range: ${min}–${max}`;
+    const typed=$("mode").value==="typed";
+    $("multiple").classList.toggle("hidden",typed);
+    $("typed").classList.toggle("hidden",!typed);
+    if(!typed){
+      try { currentChoices=makeChoices(row); }
+      catch(e){ $("feedback").textContent=e.message; $("feedback").className="feedback bad"; $("nextBtn").disabled=false; return; }
+      $("multiple").replaceChildren();
+      currentChoices.forEach((year,i)=>{
+        const b=document.createElement("button"); b.type="button"; b.className="answer";
+        b.innerHTML=`<span class="letter">${String.fromCharCode(65+i)}</span><span>${label(year,row.decade)}</span>`;
+        b.addEventListener("click",()=>checkAnswer(year)); $("multiple").append(b);
+      });
+    }
+  }
+  function checkAnswer(value) {
+    if(answered) return;
+    answered=true; const row=rows[index], answer=row.answer, v=Number(value);
+    const isCorrect=row.decade && $("mode").value==="typed" ? (v>=answer && v<answer+10) : v===answer;
+    played++; if(isCorrect) correctCount++;
+    $("score").textContent=`${correctCount} correct · ${played} played`;
+    if($("mode").value==="multiple"){
+      [...$("multiple").children].forEach((b,i)=>{
+        const year=currentChoices[i]; b.disabled=true;
+        if(year===answer) b.classList.add("correct");
+        else if(year===Number(value)) b.classList.add("wrong");
+      });
+    } else { $("yearInput").disabled=true; $("submitTyped").disabled=true; }
+    $("feedback").textContent=isCorrect?`Correct — ${label(answer,row.decade)}.`:`Not quite. The answer is ${label(answer,row.decade)}.`;
+    $("feedback").classList.add(isCorrect?"good":"bad");
+    $("nextBtn").disabled=false;
+  }
+  $("submitTyped").addEventListener("click",()=>{
+    const v=$("yearInput").value;
+    if(v.trim()==="" || !Number.isInteger(Number(v))) { $("feedback").textContent="Enter a whole-number year first."; return; }
+    checkAnswer(Number(v));
+  });
+  $("yearInput").addEventListener("keydown",e=>{if(e.key==="Enter") $("submitTyped").click();});
+  $("nextBtn").addEventListener("click",()=>{
+    if(!answered && $("mode").value==="multiple" && $("feedback").classList.contains("bad")) return;
+    if(isLoop()) index=pickRandom();
+    else if(index>=rows.length-1){index=0;correctCount=0;played=0;$("score").textContent="0 correct · 0 played";}
+    else index++;
+    showQuestion();
+  });
+  $("mode").addEventListener("change",showQuestion);
+  $("loop").addEventListener("change",()=>{ if(!rows.length)return; if(isLoop()) index=pickRandom(); showQuestion(); });
+  $("csvFile").addEventListener("change",async e=>{
+    const file=e.target.files[0]; if(!file)return;
+    try{setDataset(parseCSV(await file.text()));}
+    catch(err){$("datasetStatus").textContent=err.message;$("quiz").classList.add("hidden");}
+  });
+  $("sampleBtn").addEventListener("click",()=>setDataset(sample));
+
+  async function autoLoad() {
+    const names=new Set();
+    try {
+      const r=await fetch("./",{cache:"no-store"});
+      if(r.ok){
+        const doc=new DOMParser().parseFromString(await r.text(),"text/html");
+        doc.querySelectorAll("a[href]").forEach(a=>{
+          const h=decodeURIComponent(a.getAttribute("href").split(/[?#]/)[0]);
+          if(/\.csv$/i.test(h) && !h.includes("/") ) names.add(h);
+        });
+      }
+    } catch(e){}
+    if(!names.size) names.add("world_history_years.csv");
+    const all=[], loaded=[];
+    for(const n of names){
+      try{
+        const r=await fetch(encodeURIComponent(n),{cache:"no-store"});
+        if(!r.ok) continue;
+        const d=parseCSV(await r.text());
+        all.push(...d); loaded.push(n);
+      } catch(e){}
+    }
+    if(all.length){ setDataset(all); $("datasetStatus").textContent=`Loaded ${all.length} questions from ${loaded.join(", ")}.`; }
+    else if(location.protocol==="file:") $("datasetStatus").textContent="Can't auto-load over file://. Use “Load CSV”, or run: python3 -m http.server in this folder and open http://localhost:8000/year_quiz.html";
+  }
+  autoLoad();
+})();
+</script>
+</body>
+</html>
